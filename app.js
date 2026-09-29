@@ -135,6 +135,13 @@ async function loadAll() {
   renderAll();
 }
 
+function renderAll(){
+  renderDashboard();
+  renderActivities();
+  renderStats();
+  renderCash();
+}
+
 function personStatus(id){
   const start=new Date("2026-09-28T00:00:00"), now=new Date(); const weeks=[];
   for(let d=new Date(start); d<=now; d.setDate(d.getDate()+7)) weeks.push(d.toISOString().slice(0,10));
