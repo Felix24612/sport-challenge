@@ -1,35 +1,139 @@
-const { createClient } = window.supabase;
-const sb = createClient(window.SUPABASE_URL, window.SUPABASE_PUBLISHABLE_KEY);
-let currentUser = null, profiles = {}, activities = [], penalties = [], expenses = [];
+/*
+  Sport Challenge – browser app
+  The app uses Supabase Auth with a publishable key.
+  Sessions are persisted by supabase-js in the browser.
+*/
+
+let sb = null;
+let currentUser = null;
+let profiles = {};
+let activities = [];
+let penalties = [];
+let expenses = [];
 
 const $ = id => document.getElementById(id);
-const fmtMoney = n => new Intl.NumberFormat("de-DE",{style:"currency",currency:"EUR"}).format(n || 0);
-const fmtDate = d => new Intl.DateTimeFormat("de-DE",{day:"2-digit",month:"2-digit",year:"numeric"}).format(new Date(d+"T12:00:00"));
-const weekStart = d => { const x=new Date(d+"T12:00:00"); const day=(x.getDay()+6)%7; x.setDate(x.getDate()-day); return x.toISOString().slice(0,10); };
+const fmtMoney = n => new Intl.NumberFormat("de-DE", {style:"currency", currency:"EUR"}).format(n || 0);
+const fmtDate = d => new Intl.DateTimeFormat("de-DE", {day:"2-digit", month:"2-digit", year:"numeric"}).format(new Date(d+"T12:00:00"));
+const weekStart = d => {
+  const x = new Date(d+"T12:00:00");
+  const day = (x.getDay()+6)%7;
+  x.setDate(x.getDate()-day);
+  return x.toISOString().slice(0,10);
+};
 const today = () => new Date().toISOString().slice(0,10);
 const nameOf = id => profiles[id]?.display_name || "Unbekannt";
 
-async function boot(){
-  if(window.SUPABASE_URL.startsWith("DEINE_")) return;
-  const {data:{session}} = await sb.auth.getSession();
-  if(session) await showApp(session.user);
+function setLoginMessage(message, isError = true) {
+  const el = $("loginError");
+  if (!el) return;
+  el.textContent = message || "";
+  el.classList.toggle("error", !!isError);
 }
-async function showApp(user){
-  currentUser=user;
-  $("loginView").classList.add("hidden"); $("appView").classList.remove("hidden");
-  await loadAll();
-  $("userBadge").textContent = `${nameOf(user.id)}${profiles[user.id]?.is_admin ? " · Admin" : ""}`;
-  navigate("dashboard");
+
+function setLoginBusy(busy) {
+  const button = document.querySelector('#loginForm button[type="submit"]');
+  if (!button) return;
+  button.disabled = busy;
+  button.textContent = busy ? "Anmeldung läuft …" : "Einloggen";
 }
-async function loadAll(){
-  const [{data:p},{data:a},{data:pen},{data:ex}] = await Promise.all([
-    sb.from("profiles").select("*"), sb.from("activities").select("*").order("activity_date",{ascending:false}),
-    sb.from("penalties").select("*").order("week_start",{ascending:false}), sb.from("expenses").select("*").order("spent_at",{ascending:false})
+
+function getSupabaseClient() {
+  if (sb) return sb;
+
+  if (!window.supabase || typeof window.supabase.createClient !== "function") {
+    throw new Error(
+      "Die Supabase-Bibliothek wurde nicht geladen. Bitte die Seite einmal neu laden."
+    );
+  }
+
+  if (!window.SUPABASE_URL || !window.SUPABASE_PUBLISHABLE_KEY) {
+    throw new Error("Die Supabase-Konfiguration fehlt.");
+  }
+
+  sb = window.supabase.createClient(
+    window.SUPABASE_URL,
+    window.SUPABASE_PUBLISHABLE_KEY,
+    {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    }
+  );
+
+  return sb;
+}
+
+async function boot() {
+  try {
+    const client = getSupabaseClient();
+
+    client.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user && !currentUser) {
+        await showApp(session.user);
+      }
+    });
+
+    const { data, error } = await client.auth.getSession();
+    if (error) throw error;
+
+    if (data?.session?.user) {
+      await showApp(data.session.user);
+    }
+  } catch (error) {
+    console.error("Sport Challenge boot error:", error);
+    setLoginMessage(
+      "Die Anmeldung konnte nicht vorbereitet werden. Bitte die Seite neu laden.",
+      true
+    );
+  }
+}
+
+async function showApp(user) {
+  currentUser = user;
+  $("loginView").classList.add("hidden");
+  $("appView").classList.remove("hidden");
+
+  try {
+    await loadAll();
+    $("userBadge").textContent =
+      `${nameOf(user.id)}${profiles[user.id]?.is_admin ? " · Admin" : ""}`;
+    navigate("dashboard");
+  } catch (error) {
+    console.error("Sport Challenge load error:", error);
+    $("appView").classList.add("hidden");
+    $("loginView").classList.remove("hidden");
+    setLoginMessage(
+      "Anmeldung erfolgreich, aber die Daten konnten nicht geladen werden. Bitte erneut versuchen.",
+      true
+    );
+  }
+}
+
+async function loadAll() {
+  const client = getSupabaseClient();
+
+  const results = await Promise.all([
+    client.from("profiles").select("*"),
+    client.from("activities").select("*").order("activity_date", {ascending:false}),
+    client.from("penalties").select("*").order("week_start", {ascending:false}),
+    client.from("expenses").select("*").order("spent_at", {ascending:false})
   ]);
-  (p||[]).forEach(x=>profiles[x.id]=x); activities=a||[]; penalties=pen||[]; expenses=ex||[];
+
+  const [p, a, pen, ex] = results;
+
+  const firstError = results.find(result => result.error)?.error;
+  if (firstError) throw firstError;
+
+  profiles = {};
+  (p.data || []).forEach(x => profiles[x.id] = x);
+  activities = a.data || [];
+  penalties = pen.data || [];
+  expenses = ex.data || [];
+
   renderAll();
 }
-function renderAll(){renderDashboard();renderActivities();renderStats();renderCash();$("weekLabel").textContent=`Woche ab ${fmtDate(weekStart(today()))}`}
 
 function personStatus(id){
   const start=new Date("2026-09-28T00:00:00"), now=new Date(); const weeks=[];
@@ -92,12 +196,188 @@ function renderCash(){
   $("penalties").innerHTML=penalties.length?penalties.map(p=>`<div class="penalty"><span>${nameOf(p.user_id)} · Woche ${fmtDate(p.week_start)} · ${fmtMoney(p.amount)}</span>${p.paid?`<span class="status-badge good">bezahlt</span>`:`<button class="pay-btn" onclick="markPaid('${p.id}')">Als bezahlt</button>`}</div>`).join(""):`<span class="muted">Noch keine Strafzahlungen.</span>`;
   $("expenses").innerHTML=expenses.length?expenses.map(e=>`<div class="activity-row"><div><div class="activity-title">${e.description}</div><div class="activity-sub">${fmtDate(e.spent_at)}</div></div><div class="activity-number">− ${fmtMoney(e.amount)}</div><span></span></div>`).join(""):`<div class="panel muted">Noch keine Ausgaben.</div>`;
 }
-async function markPaid(id){ if(!profiles[currentUser.id]?.is_admin)return alert("Nur Felix kann Zahlungen verwalten."); await sb.from("penalties").update({paid:true,paid_at:new Date().toISOString()}).eq("id",id); await loadAll(); }
-async function removeActivity(id){if(!confirm("Sporteinheit wirklich löschen?"))return; await sb.from("activities").delete().eq("id",id); await loadAll();}
-$("loginForm").addEventListener("submit",async e=>{e.preventDefault();$("loginError").textContent="";const username=$("username").value.trim().toLowerCase(); const emailByUsername={felix:"felix@sportchallenge.app",yannick:"yannick@sportchallenge.app"}; const email=emailByUsername[username]; if(!email){$("loginError").textContent="Bitte Felix oder Yannick eingeben.";return;} const {error}=await sb.auth.signInWithPassword({email,password:$("password").value});if(error)$("loginError").textContent=error.message});
-$("logoutBtn").onclick=async()=>{await sb.auth.signOut();location.reload()};
-$("activityForm").addEventListener("submit",async e=>{e.preventDefault();const {error}=await sb.from("activities").insert({user_id:currentUser.id,sport:$("sport").value.trim(),activity_date:$("activityDate").value,duration_min:$("duration").value||null,distance_km:$("distance").value||null});if(error){$("activityMessage").textContent=error.message;return}$("activityForm").reset();$("activityDate").value=today();$("activityMessage").textContent="Gespeichert ✓";await loadAll()});
-$("expenseForm").addEventListener("submit",async e=>{e.preventDefault();if(!profiles[currentUser.id]?.is_admin)return alert("Nur Felix kann die Kasse verwalten.");const {error}=await sb.from("expenses").insert({description:$("expenseDescription").value,amount:$("expenseAmount").value,spent_at:today(),created_by:currentUser.id});if(!error){e.target.reset();await loadAll()}});
-document.querySelectorAll(".nav-btn").forEach(b=>b.onclick=()=>navigate(b.dataset.page));
-function navigate(page){document.querySelectorAll(".page").forEach(x=>x.classList.add("hidden"));$("page-"+page).classList.remove("hidden");document.querySelectorAll(".nav-btn").forEach(x=>x.classList.toggle("active",x.dataset.page===page));$("pageTitle").textContent={dashboard:"Dashboard",activities:"Sport eintragen",stats:"Statistiken",cash:"Kasse"}[page]}
-boot();
+
+async function markPaid(id) {
+  if (!profiles[currentUser.id]?.is_admin) {
+    return alert("Nur Felix kann Zahlungen verwalten.");
+  }
+  const { error } = await getSupabaseClient()
+    .from("penalties")
+    .update({paid:true, paid_at:new Date().toISOString()})
+    .eq("id", id);
+  if (error) {
+    alert("Die Zahlung konnte nicht gespeichert werden.");
+    console.error(error);
+    return;
+  }
+  await loadAll();
+}
+
+async function removeActivity(id) {
+  if (!confirm("Sporteinheit wirklich löschen?")) return;
+  const { error } = await getSupabaseClient()
+    .from("activities")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    alert("Die Sporteinheit konnte nicht gelöscht werden.");
+    console.error(error);
+    return;
+  }
+  await loadAll();
+}
+
+function setupEventHandlers() {
+  const loginForm = $("loginForm");
+  if (loginForm) {
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      setLoginMessage("");
+      setLoginBusy(true);
+
+      try {
+        const username = $("username").value.trim().toLowerCase();
+        const password = $("password").value;
+
+        const emailByUsername = {
+          felix: "felix@sportchallenge.app",
+          yannick: "yannick@sportchallenge.app"
+        };
+
+        const email = emailByUsername[username];
+
+        if (!email) {
+          setLoginMessage("Bitte Felix oder Yannick eingeben.");
+          return;
+        }
+
+        if (!password) {
+          setLoginMessage("Bitte dein Passwort eingeben.");
+          return;
+        }
+
+        const client = getSupabaseClient();
+        const { data, error } = await client.auth.signInWithPassword({
+          email,
+          password
+        });
+
+        if (error) {
+          console.error("Login error:", error);
+          setLoginMessage("Benutzername oder Passwort ist nicht korrekt.");
+          return;
+        }
+
+        if (!data?.user) {
+          setLoginMessage("Anmeldung konnte nicht abgeschlossen werden.");
+          return;
+        }
+
+        // Immediately enter the app. onAuthStateChange also remains active
+        // for refreshes and future auth events.
+        await showApp(data.user);
+      } catch (error) {
+        console.error("Login exception:", error);
+        setLoginMessage(
+          "Beim Einloggen ist ein Fehler aufgetreten. Bitte die Seite neu laden."
+        );
+      } finally {
+        setLoginBusy(false);
+      }
+    });
+  }
+
+  const logoutBtn = $("logoutBtn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", async () => {
+      try {
+        await getSupabaseClient().auth.signOut();
+      } finally {
+        location.reload();
+      }
+    });
+  }
+
+  const activityForm = $("activityForm");
+  if (activityForm) {
+    activityForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      try {
+        const { error } = await getSupabaseClient().from("activities").insert({
+          user_id: currentUser.id,
+          sport: $("sport").value.trim(),
+          activity_date: $("activityDate").value,
+          duration_min: $("duration").value || null,
+          distance_km: $("distance").value || null
+        });
+
+        if (error) throw error;
+
+        activityForm.reset();
+        $("activityDate").value = today();
+        $("activityMessage").textContent = "Gespeichert ✓";
+        await loadAll();
+      } catch (error) {
+        console.error(error);
+        $("activityMessage").textContent =
+          "Die Sporteinheit konnte nicht gespeichert werden.";
+      }
+    });
+  }
+
+  const expenseForm = $("expenseForm");
+  if (expenseForm) {
+    expenseForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      if (!profiles[currentUser.id]?.is_admin) {
+        return alert("Nur Felix kann die Kasse verwalten.");
+      }
+
+      try {
+        const { error } = await getSupabaseClient().from("expenses").insert({
+          description: $("expenseDescription").value,
+          amount: $("expenseAmount").value,
+          spent_at: today(),
+          created_by: currentUser.id
+        });
+
+        if (error) throw error;
+
+        expenseForm.reset();
+        await loadAll();
+      } catch (error) {
+        console.error(error);
+        alert("Die Ausgabe konnte nicht gespeichert werden.");
+      }
+    });
+  }
+
+  document.querySelectorAll(".nav-btn").forEach(button => {
+    button.addEventListener("click", () => navigate(button.dataset.page));
+  });
+}
+
+function navigate(page) {
+  document.querySelectorAll(".page").forEach(x => x.classList.add("hidden"));
+  const target = $("page-" + page);
+  if (target) target.classList.remove("hidden");
+
+  document.querySelectorAll(".nav-btn").forEach(x =>
+    x.classList.toggle("active", x.dataset.page === page)
+  );
+
+  $("pageTitle").textContent = {
+    dashboard: "Dashboard",
+    activities: "Sport eintragen",
+    stats: "Statistiken",
+    cash: "Kasse"
+  }[page] || "Dashboard";
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setupEventHandlers();
+  boot();
+});
