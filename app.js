@@ -188,7 +188,7 @@ function renderDashboard(){
   $("recentActivities").innerHTML=recent.length?recent.map(activityRow).join(""):`<div class="panel muted">Noch keine Einheiten eingetragen.</div>`;
 }
 function activityRow(a,own=false){
-  return `<div class="activity-row"><div><div class="activity-title">${a.sport}</div><div class="activity-sub">${nameOf(a.user_id)} · ${fmtDate(a.activity_date)}${a.duration_min?` · ${a.duration_min} min`:""}${a.distance_km?` · ${a.distance_km} km`:""}</div></div><div class="activity-number">1×</div>${own?`<button class="delete" onclick="removeActivity('${a.id}')">Löschen</button>`:""}</div>`
+  return `<div class="activity-row"><div><div class="activity-title">${a.sport}</div><div class="activity-sub">${nameOf(a.user_id)} · ${fmtDate(a.activity_date)}${a.duration_minutes?` · ${a.duration_minutes} min`:""}${a.distance_km?` · ${a.distance_km} km`:""}</div></div><div class="activity-number">1×</div>${own?`<button class="delete" onclick="removeActivity('${a.id}')">Löschen</button>`:""}</div>`
 }
 function renderActivities(){
   $("activityDate").value=today();
@@ -196,7 +196,7 @@ function renderActivities(){
 }
 function renderStats(){
   const ids=Object.keys(profiles);
-  const data=ids.map(id=>({id,name:nameOf(id),count:activities.filter(a=>a.user_id===id).length,dur:activities.filter(a=>a.user_id===id).reduce((s,a)=>s+Number(a.duration_min||0),0),dist:activities.filter(a=>a.user_id===id).reduce((s,a)=>s+Number(a.distance_km||0),0),strikes:personStatus(id).strikes,paid:penalties.filter(p=>p.user_id===id&&p.paid).reduce((s,p)=>s+Number(p.amount),0)}));
+  const data=ids.map(id=>({id,name:nameOf(id),count:activities.filter(a=>a.user_id===id).length,dur:activities.filter(a=>a.user_id===id).reduce((s,a)=>s+Number(a.duration_minutes||0),0),dist:activities.filter(a=>a.user_id===id).reduce((s,a)=>s+Number(a.distance_km||0),0),strikes:personStatus(id).strikes,paid:penalties.filter(p=>p.user_id===id&&p.paid).reduce((s,p)=>s+Number(p.amount),0)}));
   $("statsCards").innerHTML=data.map(x=>`<div class="stat-card"><div class="eyebrow">${x.name.toUpperCase()}</div><div class="hero-card value">${x.count}</div><div class="status-meta"><span>Einheiten</span><span>🔥 ${x.strikes} Strikes</span></div></div>`).join("");
   const max=(key)=>Math.max(1,...data.map(x=>x[key]));
   $("comparison").innerHTML=`<table><thead><tr><th>Kategorie</th>${data.map(x=>`<th>${x.name}</th>`).join("")}</tr></thead><tbody>
@@ -332,7 +332,7 @@ function setupEventHandlers() {
           user_id: currentUser.id,
           sport: $("sport").value.trim(),
           activity_date: $("activityDate").value,
-          duration_min: $("duration").value || null,
+          duration_minutes: $("duration").value || null,
           distance_km: $("distance").value || null
         });
 
