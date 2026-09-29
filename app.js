@@ -84,7 +84,7 @@ async function boot() {
   } catch (error) {
     console.error("Sport Challenge boot error:", error);
     setLoginMessage(
-      "Die Anmeldung konnte nicht vorbereitet werden. Bitte die Seite neu laden.",
+      `Die App konnte nicht vorbereitet werden: ${error.message || error}`,
       true
     );
   }
@@ -105,7 +105,7 @@ async function showApp(user) {
     $("appView").classList.add("hidden");
     $("loginView").classList.remove("hidden");
     setLoginMessage(
-      "Anmeldung erfolgreich, aber die Daten konnten nicht geladen werden. Bitte erneut versuchen.",
+      `Anmeldung erfolgreich, aber die App konnte nicht gestartet werden: ${error.message || error}`,
       true
     );
   }
@@ -114,17 +114,29 @@ async function showApp(user) {
 async function loadAll() {
   const client = getSupabaseClient();
 
-  const results = await Promise.all([
-    client.from("profiles").select("*"),
-    client.from("activities").select("*").order("activity_date", {ascending:false}),
-    client.from("penalties").select("*").order("week_start", {ascending:false}),
-    client.from("expenses").select("*").order("spent_at", {ascending:false})
-  ]);
+  const queries = [
+    ["profiles", client.from("profiles").select("*")],
+    ["activities", client.from("activities").select("*").order("activity_date", {ascending:false})],
+    ["penalties", client.from("penalties").select("*").order("week_start", {ascending:false})],
+    ["expenses", client.from("expenses").select("*").order("spent_at", {ascending:false})]
+  ];
+
+  const results = await Promise.all(
+    queries.map(async ([table, query]) => {
+      const result = await query;
+      return { table, ...result };
+    })
+  );
+
+  const failed = results.find(result => result.error);
+  if (failed) {
+    const e = failed.error;
+    throw new Error(
+      `Datenbankfehler bei "${failed.table}": ${e.message || "Unbekannter Fehler"}`
+    );
+  }
 
   const [p, a, pen, ex] = results;
-
-  const firstError = results.find(result => result.error)?.error;
-  if (firstError) throw firstError;
 
   profiles = {};
   (p.data || []).forEach(x => profiles[x.id] = x);
@@ -132,7 +144,11 @@ async function loadAll() {
   penalties = pen.data || [];
   expenses = ex.data || [];
 
-  renderAll();
+  try {
+    renderAll();
+  } catch (e) {
+    throw new Error(`Fehler beim Aufbau des Dashboards: ${e.message || e}`);
+  }
 }
 
 function renderAll(){
