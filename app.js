@@ -249,15 +249,14 @@ function addDays(dateString, days) {
 function renderDashboard() {
   const ids = Object.keys(profiles);
 
-  const totalPaid = penalties
-    .filter(p => p.paid)
+  const totalPenalties = penalties
     .reduce((s, p) => s + Number(p.amount), 0);
 
   const totalExpenses = expenses
     .reduce((s, e) => s + Number(e.amount), 0);
 
   $("heroGrid").innerHTML = [
-    ["KASSENSTAND", fmtMoney(totalPaid - totalExpenses), "accent"],
+    ["KASSENSTAND", fmtMoney(totalPenalties - totalExpenses), "accent"],
     ["SPORTEINHEITEN", activities.filter(a => a.user_id === currentUser.id).length, ""],
     ["START", "28.09.2026", ""]
   ].map(x =>
@@ -348,8 +347,8 @@ function renderStats() {
       .filter(a => a.user_id === id)
       .reduce((s, a) => s + Number(a.distance_km || 0), 0),
     strikes: personStatus(id).strikes,
-    paid: penalties
-      .filter(p => p.user_id === id && p.paid)
+    penaltiesTotal: penalties
+      .filter(p => p.user_id === id)
       .reduce((s, p) => s + Number(p.amount), 0)
   }));
 
@@ -379,7 +378,7 @@ function renderStats() {
         ${row("Trainingszeit (min)", data, "dur", max("dur"))}
         ${row("Distanz (km)", data, "dist", max("dist"))}
         ${row("Strikes", data, "strikes", Math.max(1, max("strikes")))}
-        ${row("Bezahlt", data, "paid", Math.max(1, max("paid")))}
+        ${row("Strafen verbucht", data, "penaltiesTotal", Math.max(1, max("penaltiesTotal")))}
       </tbody>
     </table>`;
 }
@@ -390,7 +389,7 @@ function row(label, data, key, m) {
       <td>${label}</td>
       ${data.map(x => `
         <td>
-          ${key === "paid" ? fmtMoney(x[key]) : key === "dist" ? fmtDistance(x[key]) : x[key]}
+          ${key === "penaltiesTotal" ? fmtMoney(x[key]) : key === "dist" ? fmtDistance(x[key]) : x[key]}
           <div class="compare-bar">
             <i style="width:${Math.min(100, x[key] / m * 100)}%"></i>
           </div>
@@ -399,16 +398,15 @@ function row(label, data, key, m) {
 }
 
 function renderCash() {
-  const paid = penalties
-    .filter(p => p.paid)
+  const penaltyTotal = penalties
     .reduce((s, p) => s + Number(p.amount), 0);
 
   const spent = expenses
     .reduce((s, e) => s + Number(e.amount), 0);
 
   $("cashSummary").innerHTML = [
-    ["AKTUELLER KASSENSTAND", fmtMoney(paid - spent), "accent"],
-    ["EINZAHLUNGEN", fmtMoney(paid), ""],
+    ["AKTUELLER KASSENSTAND", fmtMoney(penaltyTotal - spent), "accent"],
+    ["STRAFEN VERBUCHT", fmtMoney(penaltyTotal), ""],
     ["AUSGABEN", fmtMoney(spent), ""]
   ].map(x =>
     `<div class="hero-card">
@@ -421,9 +419,7 @@ function renderCash() {
     ? penalties.map(p => `
       <div class="penalty">
         <span>${escapeHtml(nameOf(p.user_id))} · Woche ${fmtDate(p.week_start)} · ${fmtMoney(p.amount)}</span>
-        ${p.paid
-          ? `<span class="status-badge good">bezahlt</span>`
-          : `<button class="pay-btn" onclick="markPaid('${p.id}')">Als bezahlt</button>`}
+        <span class="status-badge good">automatisch verbucht</span>
       </div>`
     ).join("")
     : `<span class="muted">Noch keine Strafzahlungen.</span>`;
