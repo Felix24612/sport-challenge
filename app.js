@@ -1,6 +1,6 @@
 /*
   Sport Challenge – browser app
-  Version 9
+  Version 10
 */
 
 let sb = null;
@@ -436,25 +436,6 @@ function renderCash() {
       </div>`
     ).join("")
     : `<div class="panel muted">Noch keine Ausgaben.</div>`;
-}
-
-async function markPaid(id) {
-  if (!profiles[currentUser.id]?.is_admin) {
-    return alert("Nur Felix kann Zahlungen verwalten.");
-  }
-
-  const { error } = await getSupabaseClient()
-    .from("penalties")
-    .update({ paid: true, paid_at: new Date().toISOString() })
-    .eq("id", id);
-
-  if (error) {
-    alert("Die Zahlung konnte nicht gespeichert werden.");
-    console.error(error);
-    return;
-  }
-
-  await loadAll();
 }
 
 function ensureEditModal() {
